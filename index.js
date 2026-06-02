@@ -29,11 +29,11 @@ const { saveMessage } = require('./data')
 
 // ============ SETTINGS ============
 const prefix = config.PREFIX || "."
-const ownerNumber = ['255763111390', '255610209120']  // Namba zako
+const ownerNumber = ['255763111390', '255610209120']   // Namba zako
 const app = express()
 const port = process.env.PORT || 9090
 
-// ============ COMMAND SYSTEM FROM PLUGINS ============
+// ============ COMMAND SYSTEM ============
 const commands = new Map()
 const aliases = new Map()
 global.commandsArray = []
@@ -60,30 +60,26 @@ global.registerCommand = registerCommand
 global.getCommand = getCommand
 global.commands = commands
 
-console.log(`✅ Command system ready - Waiting for plugins...`)
+console.log(`✅ Command system ready`)
 
 // ============ SESSION FOLDER ============
 if (!fs.existsSync(__dirname + '/sessions')) {
     fs.mkdirSync(__dirname + '/sessions')
 }
 
-// ============ SESSION DOWNLOAD (FIXED) ============
+// ============ SESSION DOWNLOAD ============
 if (!fs.existsSync(__dirname + '/sessions/creds.json')) {
     if (!config.SESSION_ID || config.SESSION_ID === '') {
-        console.log('========================================')
-        console.log('⚠️ HAKUNA SESSION_ID ILIYOWEKWA!')
-        console.log('⚠️ Weka SESSION_ID kwenye Heroku Config Vars')
-        console.log('========================================')
+        console.log('⚠️ SESSION_ID haipo. Weka kwenye Heroku Config Vars.')
     } else {
         console.log('📥 Inapakua session...')
         const sessdata = config.SESSION_ID.replace("jamali~", '').replace("RAHEEM-XMD>>>", '')
         const filer = File.fromURL(`https://mega.nz/file/${sessdata}`)
         filer.download((err, data) => {
-            if (err) {
-                console.log('❌ Session download failed:', err.message)
-            } else {
+            if (err) console.log('❌ Session download failed:', err.message)
+            else {
                 fs.writeFile(__dirname + '/sessions/creds.json', data, () => {
-                    console.log("✅ Session downloaded successfully")
+                    console.log("✅ Session downloaded")
                 })
             }
         })
@@ -93,50 +89,19 @@ if (!fs.existsSync(__dirname + '/sessions/creds.json')) {
 // ============ TEMP FOLDER ============
 const tempDir = path.join(os.tmpdir(), 'cache-temp')
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir)
-
 setInterval(() => {
     fs.readdir(tempDir, (err, files) => {
         if (err) return
-        for (const file of files) {
-            fs.unlink(path.join(tempDir, file), () => {})
-        }
+        for (const file of files) fs.unlink(path.join(tempDir, file), () => {})
     })
 }, 5 * 60 * 1000)
-
-// ============ FUNCTIONS ============
-const getBuffer = async (url, options) => {
-    try {
-        const res = await axios({
-            method: "get",
-            url,
-            headers: { 'DNT': 1, 'Upgrade-Insecure-Request': 1 },
-            ...options,
-            responseType: 'arraybuffer'
-        })
-        return res.data
-    } catch (e) {
-        console.log(e)
-        return null
-    }
-}
-
-const getGroupAdmins = (participants) => {
-    let admins = []
-    for (let i of participants) {
-        i.admin !== null ? admins.push(i.id) : ''
-    }
-    return admins
-}
 
 // ============ LOAD PLUGINS ============
 function loadPlugins() {
     console.log('🧬 Loading plugins...')
     const pluginsDir = path.join(__dirname, 'plugins')
-    if (!fs.existsSync(pluginsDir)) {
-        fs.mkdirSync(pluginsDir)
-        console.log('📁 Created plugins folder')
-    }
-    const pluginFiles = fs.readdirSync(pluginsDir).filter(file => file.endsWith('.js'))
+    if (!fs.existsSync(pluginsDir)) fs.mkdirSync(pluginsDir)
+    const pluginFiles = fs.readdirSync(pluginsDir).filter(f => f.endsWith('.js'))
     console.log(`📦 Found ${pluginFiles.length} plugins`)
     for (const plugin of pluginFiles) {
         try {
@@ -146,14 +111,14 @@ function loadPlugins() {
             console.log(`❌ Failed: ${plugin} - ${e.message}`)
         }
     }
-    console.log(`✅ Total commands registered: ${global.commandsArray.length}`)
+    console.log(`✅ Total commands: ${global.commandsArray.length}`)
 }
 
-// ============ MAIN CONNECTION ============
+// ============ CONNECTION ============
 async function connectToWA() {
     console.log("Connecting to WhatsApp ⏳️...")
     const { state, saveCreds } = await useMultiFileAuthState(__dirname + '/sessions/')
-    var { version } = await fetchLatestBaileysVersion()
+    const { version } = await fetchLatestBaileysVersion()
 
     const conn = makeWASocket({
         logger: P({ level: 'silent' }),
@@ -194,16 +159,11 @@ async function connectToWA() {
     })
 
     conn.ev.on('creds.update', saveCreds)
-
     conn.ev.on('messages.update', async updates => {
         for (const update of updates) {
-            if (update.update.message === null) {
-                console.log("Delete Detected")
-                await AntiDelete(conn, updates)
-            }
+            if (update.update.message === null) await AntiDelete(conn, updates)
         }
     })
-
     conn.ev.on("group-participants.update", (update) => GroupEvents(conn, update))
 
     conn.ev.on('messages.upsert', async (mek) => {
@@ -211,18 +171,14 @@ async function connectToWA() {
             mek = mek.messages[0]
             if (!mek.message) return
             
-            if (getContentType(mek.message) === 'ephemeralMessage') {
+            if (getContentType(mek.message) === 'ephemeralMessage')
                 mek.message = mek.message.ephemeralMessage.message
-            }
-            if (mek.message.viewOnceMessageV2) {
+            if (mek.message.viewOnceMessageV2)
                 mek.message = mek.message.viewOnceMessageV2.message
-            }
             
-            if (config.READ_MESSAGE === 'true') {
-                await conn.readMessages([mek.key])
-            }
+            if (config.READ_MESSAGE === 'true') await conn.readMessages([mek.key])
             
-            // Auto status handling
+            // ========== AUTO STATUS HANDLING ==========
             if (mek.key && mek.key.remoteJid === 'status@broadcast') {
                 if (config.AUTO_STATUS_SEEN === "true") await conn.readMessages([mek.key])
                 if (config.AUTO_STATUS_REACT === "true") {
@@ -250,7 +206,6 @@ async function connectToWA() {
             else if (type === 'extendedTextMessage') body = mek.message.extendedTextMessage.text || ''
             else if (type === 'imageMessage' && mek.message.imageMessage.caption) body = mek.message.imageMessage.caption
             else if (type === 'videoMessage' && mek.message.videoMessage.caption) body = mek.message.videoMessage.caption
-            else if (type === 'listResponseMessage') body = mek.message.listResponseMessage?.singleSelectReply?.selectedRowId || ''
             
             const isCmd = body.startsWith(prefix)
             const command = isCmd ? body.slice(prefix.length).trim().split(' ')[0].toLowerCase() : ''
@@ -259,14 +214,13 @@ async function connectToWA() {
             const text = args.join(' ')
             const isGroup = from.endsWith('@g.us')
             const isOwner = ownerNumber.includes(senderNumber) || (botNumber === senderNumber)
-            const isCreator = isOwner
             
             let groupMetadata = null, groupName = '', participants = [], groupAdmins = [], isBotAdmins = false, isAdmins = false
             if (isGroup) {
                 groupMetadata = await conn.groupMetadata(from).catch(() => null)
                 groupName = groupMetadata?.subject || ''
                 participants = groupMetadata?.participants || []
-                groupAdmins = getGroupAdmins(participants)
+                groupAdmins = participants.filter(p => p.admin).map(p => p.id)
                 const botNumber2 = await jidNormalizedUser(conn.user.id)
                 isBotAdmins = groupAdmins.includes(botNumber2)
                 isAdmins = groupAdmins.includes(sender)
@@ -274,27 +228,27 @@ async function connectToWA() {
             
             const reply = (teks) => { conn.sendMessage(from, { text: teks }, { quoted: mek }) }
             
-            // Auto react to owner
-            if (senderNumber.includes("255763111390")) {
+            // AUTO REACT KWA OWNER (kwenye ujumbe wa kawaida)
+            if (senderNumber.includes("255763111390") && !mek.message.reactionMessage) {
                 const reactions = ["👑","💀","❤️","🔥","⭐","✨","💎","🏆"]
                 const randomReaction = reactions[Math.floor(Math.random() * reactions.length)]
                 conn.sendMessage(from, { react: { text: randomReaction, key: mek.key } }).catch(() => {})
             }
             
-            // Execute command from plugins (PUBLIC MODE - no restrictions)
+            // ========== PUBLIC MODE: HAKUNA KIZUIZI ==========
             if (isCmd) {
                 const cmd = getCommand(command)
                 if (cmd) {
                     try {
-                        console.log(`📝 [PLUGIN] ${command} from ${senderNumber} (${isGroup ? 'GROUP' : 'DM'})`)
+                        console.log(`📝 [CMD] ${command} from ${senderNumber}`)
                         await cmd.function(conn, mek, { message: mek }, {
                             from, reply, body, isCmd, command, args, q, text,
                             isGroup, sender, senderNumber, botNumber,
-                            isOwner, isCreator, groupMetadata, groupName, participants,
+                            isOwner, groupMetadata, groupName, participants,
                             groupAdmins, isBotAdmins, isAdmins, prefix
                         })
                     } catch (e) {
-                        console.error("[COMMAND ERROR]", e)
+                        console.error("[CMD ERROR]", e)
                         reply(`❌ Error: ${e.message}`)
                     }
                 }
@@ -304,7 +258,7 @@ async function connectToWA() {
         }
     })
 
-    // ============ UTILITY FUNCTIONS ============
+    // ============ UTILITY ============
     conn.decodeJid = (jid) => {
         if (!jid) return jid
         if (/:\d+@/gi.test(jid)) {
@@ -313,7 +267,6 @@ async function connectToWA() {
         }
         return jid
     }
-    
     conn.copyNForward = async (jid, message, forceForward = false, options = {}) => {
         let mtype = Object.keys(message.message)[0]
         let content = await generateForwardMessageContent(message, forceForward)
@@ -325,7 +278,6 @@ async function connectToWA() {
         await conn.relayMessage(jid, waMessage.message, { messageId: waMessage.key.id })
         return waMessage
     }
-    
     conn.downloadAndSaveMediaMessage = async (message, filename, attachExtension = true) => {
         let quoted = message.msg ? message.msg : message
         let mime = (message.msg || message).mimetype || ''
@@ -338,7 +290,6 @@ async function connectToWA() {
         await fs.writeFileSync(trueFileName, buffer)
         return trueFileName
     }
-    
     conn.downloadMediaMessage = async (message) => {
         let mime = (message.msg || message).mimetype || ''
         let messageType = message.mtype ? message.mtype.replace(/Message/gi, '') : mime.split('/')[0]
@@ -347,7 +298,6 @@ async function connectToWA() {
         for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk])
         return buffer
     }
-    
     conn.sendFileUrl = async (jid, url, caption, quoted, options = {}) => {
         let mime = ''
         let res = await axios.head(url)
@@ -358,18 +308,16 @@ async function connectToWA() {
         if (mime.split("/")[0] === "video") return conn.sendMessage(jid, { video: await getBuffer(url), caption: caption, mimetype: 'video/mp4', ...options }, { quoted })
         if (mime.split("/")[0] === "audio") return conn.sendMessage(jid, { audio: await getBuffer(url), caption: caption, mimetype: 'audio/mpeg', ...options }, { quoted })
     }
-    
     conn.sendImage = async (jid, path, caption = '', quoted = null) => {
         let buffer = Buffer.isBuffer(path) ? path : /^https?:\/\//.test(path) ? await getBuffer(path) : fs.existsSync(path) ? fs.readFileSync(path) : null
         if (buffer) return await conn.sendMessage(jid, { image: buffer, caption: caption }, { quoted })
         return null
     }
-    
     conn.sendText = (jid, text, quoted = null) => conn.sendMessage(jid, { text: text }, { quoted })
 }
 
-// ============ START SERVER ============
-app.get("/", (req, res) => { res.send("RAHEEM-XMD-3 IS RUNNING! ✅") })
+// ============ SERVER ============
+app.get("/", (req, res) => res.send("RAHEEM-XMD-3 IS RUNNING! ✅"))
 app.listen(port, () => console.log(`Server running on port ${port}`))
 
 setTimeout(() => connectToWA(), 4000)
@@ -377,4 +325,4 @@ setTimeout(() => connectToWA(), 4000)
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err.message))
 process.on('unhandledRejection', (err) => console.error('Unhandled Rejection:', err))
 
-console.log('✅ RAHEEM-XMD-3 STARTED - PUBLIC MODE - WAITING FOR PLUGINS...')
+console.log('✅ RAHEEM-XMD-3 STARTED - PUBLIC MODE')
